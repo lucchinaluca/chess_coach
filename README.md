@@ -170,13 +170,10 @@ default: it gives the same report with at most one request.
 
 ```bash
 python tests/test_pipeline.py      # facts, template report, fake Ollama server, fallbacks
-python tests/test_offline.py       # analysis, tools, a synthetic game with a deliberate queen blunder
 ```
 
 Both use real Stockfish and need no network or API key. They cover blunder detection, phase and endgame
-tagging, the tactical facts, the cache, all four tools, the pipeline writers and the move check. The agent-loop
-test at the end of `tests/test_offline.py` was written for the original Anthropic client, so it needs updating
-for the Gemini version of `coach/agent.py`.
+tagging, the tactical facts, the cache, all four tools, the pipeline writers and the move check.
 
 ## Limits
 
