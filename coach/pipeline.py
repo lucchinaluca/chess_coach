@@ -134,22 +134,30 @@ def compact_for_llm(facts: dict) -> dict:
     return out
 
 
+def _plural(n: int, word: str, plural: str = "") -> str:
+    """'1 mistake', '2 mistakes', '1 loss', '2 losses'."""
+    return f"{n} {word if n == 1 else (plural or word + 's')}"
+
+
 def template_report(facts: dict) -> str:
     s = facts["scan"]
     n = s["games_analyzed"]
     res = s.get("results", {})
     lines = ["*Stockfish-only report (no AI writer).*", "", "## Pattern"]
-    lines.append(f"Across your last {n} games ({res.get('win', 0)} wins, {res.get('draw', 0)} draws, "
-                 f"{res.get('loss', 0)} losses) Stockfish flagged {s['flagged_mistakes_in_focus']} big mistakes"
+    games_txt = "your last game" if n == 1 else f"your last {n} games"
+    record = (f"{_plural(res.get('win', 0), 'win')}, {_plural(res.get('draw', 0), 'draw')}, "
+              f"{_plural(res.get('loss', 0), 'loss', 'losses')}")
+    lines.append(f"Across {games_txt} ({record}) Stockfish flagged "
+                 f"{_plural(s['flagged_mistakes_in_focus'], 'big mistake')}"
                  + (f" in the {s['focus']}." if s["focus"] != "all" else "."))
     phases = s["by_phase"]
     rates = {p: (v["mistakes"] + v["blunders"]) / v["player_moves"] for p, v in phases.items() if v["player_moves"]}
     if rates and s["focus"] == "all":
         worst = max(rates, key=rates.get)
         v = phases[worst]
-        lines.append(f"Your weakest phase is the **{worst}**: {v['blunders']} blunders and {v['mistakes']} mistakes "
-                     f"in {v['player_moves']} moves, losing {v['avg_win_pct_loss_per_move']} winning-chance points "
-                     f"per move on average.")
+        lines.append(f"Your weakest phase is the **{worst}**: {_plural(v['blunders'], 'blunder')} and "
+                     f"{_plural(v['mistakes'], 'mistake')} in {_plural(v['player_moves'], 'move')}, losing "
+                     f"{v['avg_win_pct_loss_per_move']} winning-chance points per move on average.")
     clock = s.get("clock")
     if clock:
         share = next((v for k, v in clock.items() if k.startswith("share_made")), None)
@@ -157,7 +165,8 @@ def template_report(facts: dict) -> str:
             lines.append(f"About {round(share * 100)}% of those mistakes came with very little time on the clock.")
     if s.get("openings_with_most_early_mistakes"):
         o = s["openings_with_most_early_mistakes"][0]
-        lines.append(f"Most early mistakes came in **{o['opening']}** ({o['mistakes']} in {o['games']} games).")
+        lines.append(f"Most early mistakes came in **{o['opening']}** "
+                     f"({_plural(o['mistakes'], 'mistake')} in {_plural(o['games'], 'game')}).")
     if s.get("endgame_types_with_mistakes"):
         t = s["endgame_types_with_mistakes"][0]
         lines.append(f"Most endgame mistakes came in **{t['type']}s** ({t['mistakes']}).")
