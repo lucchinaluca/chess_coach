@@ -90,7 +90,7 @@ The variable only lasts for that terminal window, so start the app or scripts fr
 python run_pipeline.py YOUR_LICHESS_NAME                          # Stockfish-only report, no AI
 python run_pipeline.py YOUR_LICHESS_NAME --backend ollama         # local model (see below)
 python run_pipeline.py YOUR_LICHESS_NAME --backend gemini         # needs GEMINI_API_KEY
-streamlit run app_pipeline.py                                     # web app with a writer dropdown
+streamlit run streamlit_app.py                                    # web app with a writer dropdown
 ```
 
 Useful flags: `--focus opening|endgame|all`, `--games 30`, `--depth 12`, `--retry` (one extra AI request if a
@@ -200,7 +200,7 @@ tagging, the tactical facts, the cache, all four tools, the pipeline writers and
 
 ```
 chess_coach/
-├── app_pipeline.py        Streamlit app: pipeline with a writer dropdown (the demo)
+├── steamlit_app.py        Streamlit app: pipeline with a writer dropdown (the demo)
 ├── app.py                 Streamlit app: agent loop
 ├── run_pipeline.py        CLI: pipeline
 ├── run_cli.py             CLI: agent loop
