@@ -200,7 +200,7 @@ tagging, the tactical facts, the cache, all four tools, the pipeline writers and
 
 ```
 chess_coach/
-├── steamlit_app.py        Streamlit app: pipeline with a writer dropdown (the demo)
+├── streamlit_app.py        Streamlit app: pipeline with a writer dropdown (the demo)
 ├── app.py                 Streamlit app: agent loop
 ├── run_pipeline.py        CLI: pipeline
 ├── run_cli.py             CLI: agent loop
