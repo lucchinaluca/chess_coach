@@ -21,7 +21,7 @@ WRITERS = {"Stockfish only (no AI, no key)": "template", "Gemini (your key)": "g
            "Ollama (local model)": "ollama"}
 
 with st.sidebar:
-    username = st.text_input("Lichess username")
+    username = st.text_input("Lichess username", placeholder="e.g. lucchina")
     focus = st.selectbox("Focus", ["all", "opening", "endgame"])
     n_games = st.slider("Recent games", 5, 60, 20)
     writer = st.selectbox("Report writer", list(WRITERS))
@@ -31,6 +31,7 @@ with st.sidebar:
     if backend == "gemini":
         api_key = st.text_input("Gemini API key", type="password",
                                 value=os.environ.get("GEMINI_API_KEY", ""))
+        st.caption("Get a free key at [aistudio.google.com](https://aistudio.google.com/apikey)")
         model = st.text_input("Gemini model", value=Config().model)
     if backend == "ollama":
         model = st.text_input("Ollama model", value=os.environ.get("OLLAMA_MODEL", "llama3.2:3b"))
