@@ -1,5 +1,6 @@
 """Settings. Everything can be overridden with environment variables."""
 import os
+import shutil
 import sys
 from dataclasses import dataclass, field
 
@@ -8,17 +9,28 @@ def _env(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
-import shutil
-
-def _find_stockfish() -> str:
-    env = os.environ.get("STOCKFISH_PATH")
-    if env:
-        return env
-    for cand in (shutil.which("stockfish"), "/usr/games/stockfish", "/usr/bin/stockfish",
-                 "/usr/local/bin/stockfish"):
-        if cand and os.path.isfile(cand):
-            return cand
+def _default_stockfish() -> str:
+    """Find Stockfish: env var → project folder exe → PATH → system locations."""
+    if os.environ.get("STOCKFISH_PATH"):
+        return os.environ["STOCKFISH_PATH"]
+    # look next to the running script (project root when running locally)
+    script_dir = os.path.dirname(os.path.abspath(sys.argv[0])) if sys.argv else ""
+    for candidate in [
+        os.path.join(script_dir, "stockfish-windows-x86-64-universal.exe"),
+        os.path.join(script_dir, "stockfish.exe"),
+        os.path.join(script_dir, "stockfish"),
+    ]:
+        if os.path.isfile(candidate):
+            return candidate
+    # system PATH and common Linux locations (Streamlit Cloud, etc.)
+    on_path = shutil.which("stockfish")
+    if on_path:
+        return on_path
+    for system_path in ("/usr/games/stockfish", "/usr/bin/stockfish", "/usr/local/bin/stockfish"):
+        if os.path.isfile(system_path):
+            return system_path
     return "stockfish"
+
 
 @dataclass
 class Config:
@@ -49,6 +61,6 @@ class Config:
     puzzle_rows: int = field(default_factory=lambda: int(_env("PUZZLE_ROWS", "400000")))
 
     # Agent
-    model: str = field(default_factory=lambda: _env("COACH_MODEL", "gemini-3.8-flash"))
+    model: str = field(default_factory=lambda: _env("COACH_MODEL", "gemini-2.5-flash"))
     max_tool_calls: int = 8
     low_clock_seconds: int = 30
