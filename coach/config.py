@@ -8,23 +8,17 @@ def _env(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
-def _default_stockfish() -> str:
-    """Return the STOCKFISH_PATH env var if set, otherwise look for the exe
-    next to the running script (the project root), then fall back to 'stockfish'
-    on PATH."""
-    if os.environ.get("STOCKFISH_PATH"):
-        return os.environ["STOCKFISH_PATH"]
-    # look in the same directory as the entry-point script
-    script_dir = os.path.dirname(os.path.abspath(sys.argv[0])) if sys.argv else ""
-    for candidate in [
-        os.path.join(script_dir, "stockfish-windows-x86-64-universal.exe"),
-        os.path.join(script_dir, "stockfish.exe"),
-        os.path.join(script_dir, "stockfish"),
-    ]:
-        if os.path.isfile(candidate):
-            return candidate
-    return "stockfish"  # last resort: hope it's on PATH
+import shutil
 
+def _find_stockfish() -> str:
+    env = os.environ.get("STOCKFISH_PATH")
+    if env:
+        return env
+    for cand in (shutil.which("stockfish"), "/usr/games/stockfish", "/usr/bin/stockfish",
+                 "/usr/local/bin/stockfish"):
+        if cand and os.path.isfile(cand):
+            return cand
+    return "stockfish"
 
 @dataclass
 class Config:
