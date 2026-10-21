@@ -139,6 +139,42 @@ def _plural(n: int, word: str, plural: str = "") -> str:
     return f"{n} {word if n == 1 else (plural or word + 's')}"
 
 
+def _drop_advice(severity: str, drop: float, phase: str) -> str:
+    """Return a one-sentence coaching comment based on the severity of the error."""
+    if severity == "blunder":
+        if drop >= 40:
+            return ("This is a decisive blunder — the position swung by more than 40 winning-chance points "
+                    "in a single move, which is the difference between winning and losing.")
+        return ("This is a blunder. A swing this large usually means a piece was left undefended, "
+                "a fork was missed, or a basic tactical pattern was overlooked.")
+    if severity == "mistake":
+        if phase == "endgame":
+            return ("In the endgame small inaccuracies matter a lot — this mistake let your opponent "
+                    "consolidate or create a passed pawn that should not exist.")
+        if phase == "opening":
+            return ("Opening mistakes often hand the opponent free development or a pawn — "
+                    "reviewing this line will help you avoid the same problem in future games.")
+        return ("This kind of mistake often comes from calculating one move too few — "
+                "the position looks safe but your opponent has a strong reply you didn't account for.")
+    # generic fallback
+    return ("Even when no simple tactic is visible, a move like this weakens your position "
+            "subtly — look at the piece activity and pawn structure before and after.")
+
+
+def _positional_advice(phase: str) -> str:
+    """Fallback advice for moves where no concrete tactic was found."""
+    if phase == "endgame":
+        return ("No single tactic caused this — it is a positional drift. "
+                "In endgames, focus on king activity and pawn advancement before trading pieces.")
+    if phase == "opening":
+        return ("No forcing tactic here — this is a positional error. "
+                "In the opening, ask yourself: does this move develop a piece, control the centre, "
+                "or improve king safety? If not, there is usually a better option.")
+    return ("No concrete tactic is visible, but the position shifted for positional reasons — "
+            "piece co-ordination, weak squares, or pawn structure. Open the game on the board link "
+            "and compare where your pieces stand before and after this move.")
+
+
 def template_report(facts: dict) -> str:
     s = facts["scan"]
     n = s["games_analyzed"]
@@ -150,26 +186,49 @@ def template_report(facts: dict) -> str:
     lines.append(f"Across {games_txt} ({record}) Stockfish flagged "
                  f"{_plural(s['flagged_mistakes_in_focus'], 'big mistake')}"
                  + (f" in the {s['focus']}." if s["focus"] != "all" else "."))
+
     phases = s["by_phase"]
     rates = {p: (v["mistakes"] + v["blunders"]) / v["player_moves"] for p, v in phases.items() if v["player_moves"]}
     if rates and s["focus"] == "all":
         worst = max(rates, key=rates.get)
         v = phases[worst]
+        avg = v["avg_win_pct_loss_per_move"]
         lines.append(f"Your weakest phase is the **{worst}**: {_plural(v['blunders'], 'blunder')} and "
                      f"{_plural(v['mistakes'], 'mistake')} in {_plural(v['player_moves'], 'move')}, losing "
-                     f"{v['avg_win_pct_loss_per_move']} winning-chance points per move on average.")
+                     f"{avg} winning-chance points per move on average.")
+        # Interpret the magnitude
+        if avg >= 10:
+            lines.append(f"Losing {avg} points per move in the {worst} is a serious pattern — "
+                         "on average every other move contains a significant error. "
+                         "This is where your rating points are going.")
+        elif avg >= 5:
+            lines.append(f"Losing {avg} points per move in the {worst} is above average for your level. "
+                         "Focused practice on this phase should have a direct impact on your results.")
+        else:
+            lines.append(f"Losing {avg} points per move in the {worst} is modest but consistent — "
+                         "small improvements here will compound over many games.")
+
     clock = s.get("clock")
     if clock:
         share = next((v for k, v in clock.items() if k.startswith("share_made")), None)
         if share is not None and share >= 0.25:
-            lines.append(f"About {round(share * 100)}% of those mistakes came with very little time on the clock.")
+            lines.append(f"About {round(share * 100)}% of those mistakes came with very little time on the clock. "
+                         "This is a time-management issue — try to reach the middlegame with enough time "
+                         "to think through the critical moments.")
+
     if s.get("openings_with_most_early_mistakes"):
         o = s["openings_with_most_early_mistakes"][0]
         lines.append(f"Most early mistakes came in **{o['opening']}** "
-                     f"({_plural(o['mistakes'], 'mistake')} in {_plural(o['games'], 'game')}).")
+                     f"({_plural(o['mistakes'], 'mistake')} in {_plural(o['games'], 'game')}). "
+                     "Learning the key ideas — not just the moves — of this opening will help you "
+                     "avoid these recurring early errors.")
+
     if s.get("endgame_types_with_mistakes"):
         t = s["endgame_types_with_mistakes"][0]
-        lines.append(f"Most endgame mistakes came in **{t['type']}s** ({t['mistakes']}).")
+        lines.append(f"Most endgame mistakes came in **{t['type']}s** ({t['mistakes']}). "
+                     f"Drilling {t['type'].lower()} technique is the fastest way to convert "
+                     "the winning positions you are already reaching.")
+
     if n < 10:
         lines.append("_Only a few games were analysed, so treat this pattern as tentative._")
     if s.get("note"):
@@ -181,19 +240,43 @@ def template_report(facts: dict) -> str:
     for i, ex in enumerate(shown, 1):
         m, e = ex["moment"], ex["explanation"]
         where = m["phase"] + (f", {m['endgame_type']}" if m.get("endgame_type") else "")
-        lines.append(f"**{i}. Move {m['move_number']} ({where})** - [open game]({m['url']})")
+        drop = m.get("win_pct_before", 0) - m.get("win_pct_after", 0)
+        severity = m.get("severity", "mistake")
+
+        lines.append(f"**{i}. Move {m['move_number']} ({where})** — [open game]({m['url']})")
         lines.append(f"You played `{m['played']}`; Stockfish preferred `{m['best_move']}`. "
-                     f"Your winning chances went from {m['win_pct_before']}% to {m['win_pct_after']}%.")
-        for f in e["tactical_facts"]:
-            lines.append(f"- {f}")
+                     f"Your winning chances dropped from **{m['win_pct_before']}%** to **{m['win_pct_after']}%** "
+                     f"({round(drop)}‑point swing).")
+
+        # Coaching interpretation of the drop
+        lines.append(_drop_advice(severity, drop, m["phase"]))
+
+        # Tactical facts — skip the unhelpful positional-fallback string and replace it
+        POSITIONAL_FALLBACK = "No simple tactic was detected"
+        tactical = e.get("tactical_facts", [])
+        concrete = [f for f in tactical if POSITIONAL_FALLBACK not in f]
+        if concrete:
+            for fact in concrete:
+                lines.append(f"- {fact}")
+        else:
+            lines.append(_positional_advice(m["phase"]))
+
         if e.get("best_line"):
-            lines.append(f"- Best line: `{e['best_line']}`")
+            lines.append(f"- **Best continuation:** `{e['best_line']}`")
         if e.get("line_after_your_move"):
-            lines.append(f"- After your move: `{e['line_after_your_move']}`")
+            lines.append(f"- **After your move:** `{e['line_after_your_move']}` — notice how the position deteriorates.")
         lines.append("")
+
     if facts.get("practice"):
         p = facts["practice"]
-        lines += ["## Practise this week", f"Puzzles on the theme **{p['theme']}** near your rating:"]
+        theme_name = p["theme"].replace("_", " ")
+        lines += [
+            "## Practise this week",
+            f"The pattern across your mistakes points to **{theme_name}**. "
+            f"Spending 10–15 minutes a day on puzzles in this theme will train your eye "
+            "to spot these positions before they happen over the board.",
+            f"Try these puzzles near your rating:",
+        ]
         lines += [f"- {x['url']} (rating {x['rating']})" for x in p["puzzles"]]
     return "\n".join(lines).strip()
 
@@ -205,7 +288,7 @@ def _call_gemini(system: str, user: str, api_key: str, model: str) -> str:
         client = genai.Client(api_key=api_key)
         resp = client.models.generate_content(
             model=model, contents=user,
-            config=gt.GenerateContentConfig(system_instruction=system, max_output_tokens=4000))
+            config=gt.GenerateContentConfig(system_instruction=system, max_output_tokens=5000))
         text = (resp.text or "").strip()
     except Exception as e:
         raise BackendError(f"Gemini request failed ({type(e).__name__}: {str(e)[:200]}).") from e

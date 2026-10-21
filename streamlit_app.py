@@ -33,7 +33,10 @@ with st.sidebar:
                                 value=os.environ.get("GEMINI_API_KEY", ""))
         st.caption("Get a free key at [aistudio.google.com](https://aistudio.google.com/apikey)")
         model = st.text_input("Gemini model", value=Config().model)
+    ollama_url = ""
     if backend == "ollama":
+        ollama_url = st.text_input("Ollama URL", value=os.environ.get("OLLAMA_URL", "http://localhost:11434"),
+                                   help="Change this if Ollama is running on a remote machine or a different port.")
         model = st.text_input("Ollama model", value=os.environ.get("OLLAMA_MODEL", "llama3.2:3b"))
     sf_path = st.text_input("Stockfish path", value=Config().stockfish_path)
     depth = st.slider("Stockfish depth", 8, 18, 10)
@@ -67,7 +70,7 @@ if go:
                                      say=lambda m: status.update(label=m))
                 if "error" not in facts and backend != "template":
                     status.update(label="Writing the report...")
-                res = write_report(facts, backend, api_key=api_key, model=model)
+                res = write_report(facts, backend, api_key=api_key, model=model, ollama_url=ollama_url)
                 status.update(label="Done", state="complete")
 
             if res.note:
