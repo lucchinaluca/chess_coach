@@ -12,9 +12,9 @@ from coach.config import Config
 from coach.pipeline import gather_facts, write_report
 from coach.tools import CoachTools
 
-st.set_page_config(page_title="Chess coach", page_icon="♟️", layout="wide")
-st.title("♟️ Chess coach")
-st.caption("Stockfish finds your biggest mistakes. An optional AI writer explains the pattern. "
+st.set_page_config(page_title="Move-Mentor", page_icon="♟️", layout="wide")
+st.title("♟️ Move-Mentor")
+st.caption("Your chess coach, Stockfish finds your biggest mistakes. An optional AI writer explains the pattern. "
            "Every move in an AI report is checked against Stockfish's output.")
 
 WRITERS = {"Stockfish only (no AI, no key)": "template", "Gemini (your key)": "gemini",

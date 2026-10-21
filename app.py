@@ -1,4 +1,4 @@
-"""Streamlit front end:  streamlit run app.py"""
+"""agentic version of the app"""
 import os
 
 import chess
