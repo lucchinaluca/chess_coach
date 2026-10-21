@@ -1,5 +1,6 @@
 """Settings. Everything can be overridden with environment variables."""
 import os
+import sys
 from dataclasses import dataclass, field
 
 
@@ -7,10 +8,28 @@ def _env(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
+def _default_stockfish() -> str:
+    """Return the STOCKFISH_PATH env var if set, otherwise look for the exe
+    next to the running script (the project root), then fall back to 'stockfish'
+    on PATH."""
+    if os.environ.get("STOCKFISH_PATH"):
+        return os.environ["STOCKFISH_PATH"]
+    # look in the same directory as the entry-point script
+    script_dir = os.path.dirname(os.path.abspath(sys.argv[0])) if sys.argv else ""
+    for candidate in [
+        os.path.join(script_dir, "stockfish-windows-x86-64-universal.exe"),
+        os.path.join(script_dir, "stockfish.exe"),
+        os.path.join(script_dir, "stockfish"),
+    ]:
+        if os.path.isfile(candidate):
+            return candidate
+    return "stockfish"  # last resort: hope it's on PATH
+
+
 @dataclass
 class Config:
     # Stockfish
-    stockfish_path: str = field(default_factory=lambda: _env("STOCKFISH_PATH", "stockfish"))
+    stockfish_path: str = field(default_factory=_default_stockfish)
     depth: int = field(default_factory=lambda: int(_env("COACH_DEPTH", "12")))
     threads: int = field(default_factory=lambda: int(_env("COACH_THREADS", "2")))
     hash_mb: int = field(default_factory=lambda: int(_env("COACH_HASH_MB", "128")))
