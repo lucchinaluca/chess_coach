@@ -3,3 +3,4 @@ __pycache__/
 .env
 .venv/
 *.exe
+deploy_space.py
