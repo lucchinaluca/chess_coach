@@ -79,7 +79,7 @@ with st.sidebar:
         )
 
     st.divider()
-    sf_path = st.text_input("Stockfish path", value=Config().stockfish_path)
+    sf_path = Config().stockfish_path
     depth = st.slider("Stockfish depth", 8, 18, 10)
     st.caption("Keys stay in this session and are never stored.")
 
