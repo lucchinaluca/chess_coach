@@ -298,8 +298,14 @@ def _call_gemini(system: str, user: str, api_key: str, model: str) -> str:
 
 
 def _call_ollama(system: str, user: str, model: str, url: str) -> str:
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "chess-coach/1.0",
+        "ngrok-skip-browser-warning": "true",
+        "cf-access-client-id": "bypass",
+    }
     try:
-        r = requests.post(f"{url}/api/chat", timeout=900, json={
+        r = requests.post(f"{url}/api/chat", timeout=900, headers=headers, json={
             "model": model, "stream": False,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "options": {"temperature": 0.3, "num_ctx": 8192}})

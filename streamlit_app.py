@@ -18,7 +18,7 @@ st.caption("Stockfish finds your biggest mistakes. An optional AI writer explain
            "Every move in an AI report is checked against Stockfish's output.")
 
 WRITERS = {"Stockfish only (no AI, no key)": "template", "Gemini (your key)": "gemini",
-           "Ollama (local model)": "ollama"}
+           "Ollama (local only)": "ollama"}
 
 with st.sidebar:
     username = st.text_input("Lichess username", placeholder="e.g. lucchina")
@@ -35,6 +35,7 @@ with st.sidebar:
         model = st.text_input("Gemini model", value=Config().model)
     ollama_url = ""
     if backend == "ollama":
+        st.info("Ollama only works when you are running Streamlit locally on the same machine as Ollama.")
         ollama_url = st.text_input("Ollama URL", value=os.environ.get("OLLAMA_URL", "http://localhost:11434"),
                                    help="Change this if Ollama is running on a remote machine or a different port.")
         model = st.text_input("Ollama model", value=os.environ.get("OLLAMA_MODEL", "llama3.2:3b"))
