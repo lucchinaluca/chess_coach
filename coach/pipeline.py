@@ -23,7 +23,7 @@ from typing import Callable, Optional
 
 import requests
 
-from .agent import unverified_moves
+from .agent import unverified_moves, _SAN as _SAN_RE
 from .config import Config
 from .tools import CoachTools
 
@@ -31,34 +31,66 @@ REPORT_PROMPT = """You are a chess coach for club-level players (roughly 800-180
 You are given a FACT SHEET in JSON produced by Stockfish analysis of one player's real games.
 Write a coaching report from it — direct, specific, and actionable.
 
-RULES
-- Use only the numbers and moves that appear in the fact sheet. Copy moves exactly as written there.
-- Never invent moves, variations or evaluations. Name a tactic only if tactical_facts lists it.
-- You may add a short opinion, but start it with "My read:" and do not introduce any move not in
-  the fact sheet.
-- If a field is missing, skip that section entirely. Do not mention the JSON or the fact sheet.
+MOVE RULES — strictly enforced:
+- Each example in the fact sheet has an "anchor" field. That line is already written for you.
+  Copy it VERBATIM (character-for-character) as the first line of each mistake block.
+- After the anchor, write 2-3 sentences of coaching explanation using only tactical_facts.
+- Do NOT restate the move names, percentages, or best lines yourself — they are already in
+  the anchor. Do NOT write any move notation outside of what the anchor contains.
+- Do NOT invent moves, variations, or tactical names not in tactical_facts.
+- If tactical_facts is empty, explain the consequence in plain words without naming moves.
 
 FORMAT (about 450-550 words)
 
 **Overall pattern** — 3-4 sentences: record, weakest phase with numbers, clock habits if relevant.
 
-**Opening repertoire** — if playstyle.openings is in the sheet: comment on 2-3 of their most-played
-openings, note which ones have the worst win rate or most mistakes, and give one concrete tip per
-opening (e.g. "In the Sicilian you tend to blunder on move 8-12 — study the key ideas around the
-d5 break."). If there is no opening data, skip this section.
+**Opening repertoire** — if playstyle.openings is in the sheet: comment on 2-3 openings,
+win rate, mistake rate, one concrete tip each. No move notation. Skip if no opening data.
 
-**Your playstyle** — if playstyle is in the sheet: describe what the numbers say about how they
-play (e.g. "You play aggressively as White but switch to solid as Black — this inconsistency may
-explain your lower Black win rate."). Comment on their phase tendency (do they reach endgames
-often? do they win or lose them?). Keep it to 3-4 sentences.
+**Your playstyle** — if playstyle is in the sheet: what the numbers say about how they play,
+phase tendency. 3-4 sentences.
 
-**Key mistakes** — one block per example: game link, move number, move played, better move,
-winning-chance swing, then 2-3 sentences using tactical_facts and best lines.
+**Key mistakes** — for each example:
+  1. Copy the "anchor" field
+  2. Add 2-3 sentences of explanation from tactical_facts (no new moves).
 
-**This week** — one concrete habit to build (not just "solve puzzles"), plus puzzle links if present.
+**This week** — one concrete habit to build, plus puzzle links if present.
 
 Use plain language. Explain any chess term briefly. Be direct and encouraging, not flattering.
 If fewer than 10 games, say the pattern is tentative.
+"""
+
+SINGLE_GAME_PROMPT = """You are a chess coach reviewing ONE game for a club-level player (roughly 800-1800 rating).
+You are given a FACT SHEET in JSON produced by Stockfish analysis of that game.
+Write a post-game coaching note — honest, specific, and balanced.
+
+MOVE RULES — strictly enforced:
+- Each example in the fact sheet has an "anchor" field. That line is already written for you.
+  Copy it VERBATIM (character-for-character) as the first line of each mistake block.
+- After the anchor, write 2-3 sentences of coaching explanation using only tactical_facts.
+- Do NOT restate the move names, percentages, or best lines yourself — they are already in
+  the anchor. Do NOT write any move notation outside of what the anchor contains.
+- Do NOT invent moves, variations, or tactical names not in tactical_facts.
+- If tactical_facts is empty, explain the consequence in plain words without naming moves.
+- Balance is essential: find and name positive moments even in a bad game.
+
+FORMAT (about 300-400 words)
+
+**Result & big picture** — 2-3 sentences: result, which phase had the most impact, one honest
+observation. No move notation here.
+
+**What you did well** — 2-4 bullet points: phases where win probability held steady or improved,
+solid decisions, good technique. If nothing stands out from the data, note something structural
+(e.g. "Your opening was solid — you reached the middlegame with equal chances.").
+Do NOT skip this section. No move notation here.
+
+**Key mistake(s)** — for each example (max 2):
+  1. Add 2-3 sentences of explanation from tactical_facts (no new moves).
+
+**One thing to work on** — a single concrete habit, name the phase and pattern.
+Include puzzle links if present.
+
+Use plain language. Explain any chess term briefly. Be encouraging and direct, not flattering.
 """
 
 
@@ -202,7 +234,40 @@ class ReportResult:
     note: str = ""
 
 
+def _format_example_anchor(m: dict, e: dict) -> str:
+    """Build the immutable anchor text for one mistake block.
+
+    This is rendered in Python from verified Stockfish data and injected verbatim
+    into the fact sheet. The LLM is told to copy it exactly and only add a coaching
+    explanation after it — preventing it from restating (and therefore misquoting) the facts.
+    """
+    drop = round(m.get("win_pct_before", 0) - m.get("win_pct_after", 0), 1)
+    sev = (m.get("severity") or "mistake").capitalize()
+    anchor = (
+        f"[ANCHOR — copy this line exactly]\n"
+        f"**Move {m['move_number']} ({m['phase']}) — {sev}** "
+        f"([open game]({m['url']})): "
+        f"played `{m['played']}`, Stockfish preferred `{m['best_move']}`. "
+        f"Winning chances: {m['win_pct_before']}% → {m['win_pct_after']}% "
+        f"(−{drop} points)."
+    )
+    extras = []
+    if e.get("best_line"):
+        extras.append(f"Best continuation: `{e['best_line']}`")
+    if e.get("line_after_your_move"):
+        extras.append(f"After your move: `{e['line_after_your_move']}`")
+    if extras:
+        anchor += " " + " | ".join(extras)
+    return anchor
+
+
 def compact_for_llm(facts: dict) -> dict:
+    """Build the fact sheet sent to the LLM.
+
+    Each mistake example includes a pre-rendered ANCHOR line built from verified
+    Stockfish data. The LLM must copy that anchor verbatim and only add a coaching
+    explanation after it — it must not restate the move names or numbers itself.
+    """
     s = facts["scan"]
     keep = ["player", "games_analyzed", "results", "average_rating", "focus", "by_phase",
             "flagged_mistakes_in_focus", "clock", "openings_with_most_early_mistakes",
@@ -212,13 +277,21 @@ def compact_for_llm(facts: dict) -> dict:
         m, e = ex["moment"], ex["explanation"]
         if "error" in e:
             continue
-        item = {k: m[k] for k in ("url", "move_number", "phase", "played", "best_move",
-                                  "win_pct_before", "win_pct_after", "severity") if k in m}
+        item = {
+            "anchor":        _format_example_anchor(m, e),
+            "url":           m.get("url"),
+            "move_number":   m.get("move_number"),
+            "phase":         m.get("phase"),
+            "severity":      m.get("severity"),
+            "win_pct_before": m.get("win_pct_before"),
+            "win_pct_after":  m.get("win_pct_after"),
+            "win_pct_drop":   round(m.get("win_pct_before", 0) - m.get("win_pct_after", 0), 1),
+        }
         for k in ("endgame_type", "clock_seconds_left"):
             if k in m:
                 item[k] = m[k]
-        item.update({"best_line": e.get("best_line"), "line_after_your_move": e.get("line_after_your_move"),
-                     "tactical_facts": e.get("tactical_facts")})
+        if e.get("tactical_facts"):
+            item["tactical_facts"] = e["tactical_facts"]
         examples.append(item)
     out = {"summary": {k: s[k] for k in keep if k in s}, "examples": examples}
     if facts.get("practice"):
@@ -480,6 +553,7 @@ def _call_gemini(system: str, user: str, api_key: str, model: str) -> str:
 
 
 def _call_ollama(system: str, user: str, model: str, url: str) -> str:
+    """Single-shot Ollama call (stream=False). Use stream_ollama() for Streamlit."""
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "chess-coach/1.0",
@@ -501,21 +575,159 @@ def _call_ollama(system: str, user: str, model: str, url: str) -> str:
     return text
 
 
+def stream_ollama(system: str, user: str, model: str, url: str):
+    """Generator that yields text tokens from Ollama as they arrive (stream=True).
+
+    Each yielded value is a plain string fragment. Raises BackendError on failure.
+    """
+    import json as _json
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "chess-coach/1.0",
+        "ngrok-skip-browser-warning": "true",
+        "cf-access-client-id": "bypass",
+    }
+    try:
+        r = requests.post(
+            f"{url}/api/chat",
+            timeout=900,
+            headers=headers,
+            stream=True,
+            json={
+                "model": model,
+                "stream": True,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "options": {"temperature": 0.3, "num_ctx": 8192},
+            },
+        )
+    except requests.RequestException as e:
+        raise BackendError(f"Could not reach Ollama at {url}. Is it running? ({type(e).__name__})") from e
+    if r.status_code != 200:
+        raise BackendError(f"Ollama returned HTTP {r.status_code}: {r.text[:200]}")
+    for raw_line in r.iter_lines():
+        if not raw_line:
+            continue
+        try:
+            chunk = _json.loads(raw_line)
+        except ValueError:
+            continue
+        token = (chunk.get("message") or {}).get("content", "")
+        if token:
+            yield token
+        if chunk.get("done"):
+            break
+
+
+def gather_facts_from_pgn(pgn_text: str, username: str, tools: "CoachTools",
+                          focus: str = "all", n_examples: int = 3,
+                          say: Optional[Callable[[str], None]] = None) -> dict:
+    """Like gather_facts() but works from a raw PGN string instead of fetching from Lichess.
+
+    Parses every game in *pgn_text* that lists *username* as White or Black,
+    runs Stockfish on them, then builds the same facts dict as gather_facts().
+
+    If *username* is empty, the function tries to auto-detect it from the PGN headers
+    (uses the first White player found).
+    """
+    import io
+    import chess.pgn
+    from .analysis import annotate_game
+
+    say = say or (lambda m: None)
+
+    stream = io.StringIO(pgn_text)
+    parsed = []
+    while True:
+        game = chess.pgn.read_game(stream)
+        if game is None:
+            break
+        h = game.headers
+        if h.get("Variant", "Standard") not in ("Standard", "From Position"):
+            continue
+        if sum(1 for _ in game.mainline_moves()) < 4:
+            continue
+        parsed.append(game)
+
+    if not parsed:
+        return {"error": "No valid standard games found in the PGN."}
+
+    # Auto-detect username if not given
+    if not username:
+        username = parsed[0].headers.get("White", "Player")
+
+    say(f"Analysing {len(parsed)} game(s) with Stockfish...")
+    total = len(parsed)
+    for i, g in enumerate(parsed):
+        white = g.headers.get("White", "")
+        black = g.headers.get("Black", "")
+        # Accept the game if username matches either side (case-insensitive)
+        uname_lower = username.lower()
+        if uname_lower not in (white.lower(), black.lower()):
+            # If username doesn't match any side, just take White as the player
+            # (useful for single-game PGNs without recognisable usernames)
+            effective_user = white or username
+        else:
+            effective_user = username
+
+        site = g.headers.get("Site", "")
+        gid = site.rstrip("/").split("/")[-1] if site else f"pgn-game-{i}"
+        if not gid or gid == site:
+            gid = f"pgn-game-{i}"
+
+        if gid in tools.games:
+            continue
+
+        say(f"Analysing game {i + 1}/{total}...")
+        ag = annotate_game(g, effective_user, tools.an, tools.cfg)
+        if ag:
+            tools.games[ag.id] = ag
+
+    if not tools.games:
+        return {"error": f"No games found for player '{username}' in the PGN."}
+
+    # Build the same summary the pipeline uses
+    scan = tools.summarize(focus, username)
+
+    examples = []
+    for j, m in enumerate(pick_examples(scan.get("worst_moments", []), n_examples), 1):
+        say(f"Explaining mistake {j}...")
+        e = tools.dispatch("explain_position", {"fen": m["fen_before"], "played_move_uci": m["played_uci"]})
+        examples.append({"moment": m, "explanation": e})
+
+    practice = None
+    themes = Counter(t for ex in examples for t in ex["explanation"].get("suggested_puzzle_themes", []))
+    if themes:
+        theme = themes.most_common(1)[0][0]
+        p = tools.dispatch("get_practice", {"theme": theme,
+                                             "rating": scan.get("average_rating") or 1400, "n": 3})
+        practice = None if "error" in p else p
+
+    say("Building playstyle profile...")
+    playstyle = gather_playstyle(tools)
+
+    return {"scan": scan, "examples": examples, "practice": practice, "playstyle": playstyle}
+
+
 def write_report(facts: dict, backend: str = "template", api_key: str = "", model: str = "",
-                 ollama_url: str = "", retry: bool = False) -> ReportResult:
+                 ollama_url: str = "", retry: bool = True,
+                 system_prompt: str = "") -> ReportResult:
     if "error" in facts:
         return ReportResult(text=facts["error"], backend_used="none")
     if backend == "template":
         return ReportResult(template_report(facts), "template")
 
+    prompt = system_prompt or REPORT_PROMPT
     sheet = json.dumps(compact_for_llm(facts), indent=1)
     user = f"FACT SHEET (JSON):\n{sheet}\n\nWrite the coaching report now."
 
-    def call(prompt: str) -> str:
+    def call(user_msg: str) -> str:
         if backend == "gemini":
-            return _call_gemini(REPORT_PROMPT, prompt, api_key, model or Config().model)
+            return _call_gemini(prompt, user_msg, api_key, model or Config().model)
         if backend == "ollama":
-            return _call_ollama(REPORT_PROMPT, prompt, model or os.environ.get("OLLAMA_MODEL", "llama3.2:3b"),
+            return _call_ollama(prompt, user_msg, model or os.environ.get("OLLAMA_MODEL", "llama3.2:3b"),
                                 ollama_url or os.environ.get("OLLAMA_URL", "http://localhost:11434"))
         raise BackendError(f"Unknown backend '{backend}'.")
 
@@ -523,8 +735,20 @@ def write_report(facts: dict, backend: str = "template", api_key: str = "", mode
         text = call(user)
         bad = unverified_moves(text, sheet)
         if bad and retry:
-            text = call(user + f"\n\nYour previous draft mentioned moves that are not in the fact sheet: "
-                               f"{', '.join(bad)}. Rewrite the report using only moves from the fact sheet.")
+            # Extract every move that IS in the fact sheet so the model has an explicit allowlist
+            allowed = sorted({m.group(0) for m in _SAN_RE.finditer(sheet)})
+            allowed_str = ", ".join(allowed) if allowed else "(none — describe positions in words only)"
+            correction = (
+                f"Your draft contains chess moves that do not appear in the fact sheet: "
+                f"{', '.join(bad)}.\n\n"
+                f"The ONLY moves you are allowed to write are the ones that appear literally in "
+                f"the fact sheet. Here is the complete list of moves found there:\n"
+                f"{allowed_str}\n\n"
+                f"Rewrite the full report. Replace any disallowed move with a description of the "
+                f"position change in words (e.g. 'winning chances fell from 65% to 28%'). "
+                f"Do not introduce any move not in the list above."
+            )
+            text = call(user + "\n\n" + correction)
             bad = unverified_moves(text, sheet)
         return ReportResult(text, backend, verified=not bad, unverified=bad)
     except BackendError as e:

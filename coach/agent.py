@@ -55,18 +55,34 @@ LIMITS
   instead of inventing problems, you can give general tips and advice commonly used.
 """
 
-# SAN-looking tokens. Two-character tokens (pawn pushes, bare squares) are skipped because
-# they cannot be told apart from squares mentioned in ordinary sentences.
-_SAN = re.compile(r"(?<![A-Za-z0-9])(?:O-O-O|O-O|[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|"
-                  r"[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][18]=[QRBN])[+#]?(?![A-Za-z0-9])")
+# SAN-looking tokens. Two-character tokens (bare pawn squares like e4, d5) are excluded
+# because they are indistinguishable from square references in ordinary sentences.
+# Piece moves (Na5, Qd7, Bxe5, etc.) ARE checked even when short — those are unambiguous.
+_SAN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:"
+    r"O-O-O|O-O"                                        # castling
+    r"|[KQRBN][a-h]?[1-8]?x?[a-h][1-8]"               # piece moves: Na5, Nxe5, Nce4, N3e4
+    r"|[a-h]x[a-h][1-8](?:=[QRBN])?"                   # pawn captures: exd5, exd8=Q
+    r"|[a-h][18]=[QRBN]"                                # pawn promotions: e8=Q
+    r")"
+    r"[+#]?(?![A-Za-z0-9])"
+)
 
 
 def unverified_moves(report: str, tool_text: str) -> list[str]:
-    """Moves written in the report that never appeared in a tool result."""
+    """Return moves written in the report that never appeared in a tool result.
+
+    Uses whole-word matching so 'Na5' is not falsely cleared by 'Na50' appearing
+    in a game ID or URL inside the tool JSON.
+    """
     bad = []
     for m in {x.group(0) for x in _SAN.finditer(report)}:
         core = m.rstrip("+#")
-        if core not in tool_text:
+        # Require the move to appear as a standalone token in the tool output,
+        # not just as a substring of a longer alphanumeric string.
+        pattern = r"(?<![A-Za-z0-9])" + re.escape(core) + r"(?![A-Za-z0-9])"
+        if not re.search(pattern, tool_text):
             bad.append(m)
     return sorted(bad)
 
