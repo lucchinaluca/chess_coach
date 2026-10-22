@@ -11,8 +11,8 @@
 
 ## What it does
 
-- Downloads your recent games from Lichess and analyses every move with Stockfish.
-- Finds the moves that cost you the most winning chances, sorted by game phase (opening, middlegame, endgame), clock habits, opening, and endgame type.
+- Downloads your recent games from Lichess **or analyses a PGN you paste in** (Chess.com exports, Lichess exports, any standard PGN).
+- Analyses every move with Stockfish and finds the moves that cost you the most winning chances, sorted by game phase (opening, middlegame, endgame), clock habits, opening, and endgame type.
 - Profiles your **playstyle**: White vs Black record, opening repertoire with win rates and mistake rates, and phase tendency (do you reach endgames? do you convert them?).
 - Writes a coaching report with targeted advice — not just numbers. The writer is your choice: no AI at all, a local model, or Gemini.
 
@@ -44,7 +44,7 @@ Every report (including the Stockfish-only template) covers:
 
 The orchestration is plain Python, so a report costs **0 or 1 AI requests**. That is what makes it work on a free API quota or a small local model.
 
-**1. Download games.** The Lichess API returns your recent games with clocks and opening names.
+**1. Fetch games.** Either the Lichess API returns your recent games (with clocks and opening names), or you paste / upload a PGN directly in the app — Chess.com exports, Lichess exports, or any standard PGN file.
 
 **2. Stockfish analyses every position.** Evaluations are cached on disk, so a second run on the same games is nearly instant.
 
@@ -93,7 +93,7 @@ The variable only lasts for that terminal window, so start the app or scripts fr
 python run_pipeline.py YOUR_LICHESS_NAME                          # Stockfish-only report, no AI
 python run_pipeline.py YOUR_LICHESS_NAME --backend ollama         # local model (see below)
 python run_pipeline.py YOUR_LICHESS_NAME --backend gemini         # needs GEMINI_API_KEY
-streamlit run streamlit_app.py                                    # web app with a writer dropdown
+streamlit run streamlit_app.py                                    # web app — Lichess tab or PGN tab
 ```
 
 Useful flags: `--focus opening|endgame|all`, `--games 30`, `--depth 12`, `--retry` (one extra AI request if a move fails the check).
@@ -177,7 +177,7 @@ Uses real Stockfish and needs no network or API key. Covers blunder detection, p
 - Tactical tags are simple rules and can miss things or over-report. Positional mistakes get no named reason, only the evaluation change and the better move.
 - Evaluations at low depth can misjudge sharp positions. Only large drops are flagged for that reason.
 - Writing quality depends on the model. Small local models write plainer text than Gemini.
-- Only public, standard-chess Lichess games are analysed.
+- Only public, standard-chess Lichess games are supported via the username tab. The PGN tab accepts any standard-chess game regardless of source.
 - The playstyle profile is based on the games analysed; 20+ games gives a more reliable picture.
 
 ## Troubleshooting
@@ -219,7 +219,6 @@ chess_coach/
 - Progress tracking: compare the last 30 games with the previous 30.
 - Endgame tablebase lookups for simple endings.
 - A "how natural was this move" signal from a model trained on human games.
-- Chess.com support alongside Lichess.
 
 ## Licence and credits
 
