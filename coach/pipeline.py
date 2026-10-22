@@ -32,11 +32,11 @@ You are given a FACT SHEET in JSON produced by Stockfish analysis of one player'
 Write a coaching report from it — direct, specific, and actionable.
 
 MOVE RULES — strictly enforced:
-- Each example in the fact sheet has an "anchor" field. That line is already written for you.
+- Each example in the fact sheet has a "fact_line" field. That line is already written for you.
   Copy it VERBATIM (character-for-character) as the first line of each mistake block.
-- After the anchor, write 2-3 sentences of coaching explanation using only tactical_facts.
+- After the fact_line, write 2-3 sentences of coaching explanation using only tactical_facts.
 - Do NOT restate the move names, percentages, or best lines yourself — they are already in
-  the anchor. Do NOT write any move notation outside of what the anchor contains.
+  the fact_line. Do NOT write any move notation outside of what the fact_line contains.
 - Do NOT invent moves, variations, or tactical names not in tactical_facts.
 - If tactical_facts is empty, explain the consequence in plain words without naming moves.
 
@@ -51,7 +51,8 @@ win rate, mistake rate, one concrete tip each. No move notation. Skip if no open
 phase tendency. 3-4 sentences.
 
 **Key mistakes** — for each example:
-  1. Copy the "anchor" field
+  1. Copy the "fact_line" field exactly as the first line.
+  2. Add 2-3 sentences of explanation from tactical_facts (no new moves).
   2. Add 2-3 sentences of explanation from tactical_facts (no new moves).
 
 **This week** — one concrete habit to build, plus puzzle links if present.
@@ -65,11 +66,11 @@ You are given a FACT SHEET in JSON produced by Stockfish analysis of that game.
 Write a post-game coaching note — honest, specific, and balanced.
 
 MOVE RULES — strictly enforced:
-- Each example in the fact sheet has an "anchor" field. That line is already written for you.
+- Each example in the fact sheet has a "fact_line" field. That line is already written for you.
   Copy it VERBATIM (character-for-character) as the first line of each mistake block.
-- After the anchor, write 2-3 sentences of coaching explanation using only tactical_facts.
+- After the fact_line, write 2-3 sentences of coaching explanation using only tactical_facts.
 - Do NOT restate the move names, percentages, or best lines yourself — they are already in
-  the anchor. Do NOT write any move notation outside of what the anchor contains.
+  the fact_line. Do NOT write any move notation outside of what the fact_line contains.
 - Do NOT invent moves, variations, or tactical names not in tactical_facts.
 - If tactical_facts is empty, explain the consequence in plain words without naming moves.
 - Balance is essential: find and name positive moments even in a bad game.
@@ -235,16 +236,14 @@ class ReportResult:
 
 
 def _format_example_anchor(m: dict, e: dict) -> str:
-    """Build the immutable anchor text for one mistake block.
+    """Build the immutable fact line for one mistake block.
 
-    This is rendered in Python from verified Stockfish data and injected verbatim
-    into the fact sheet. The LLM is told to copy it exactly and only add a coaching
-    explanation after it — preventing it from restating (and therefore misquoting) the facts.
+    This is rendered in Python from verified Stockfish data. The LLM is told
+    to copy this field verbatim as the opening line of each mistake block.
     """
     drop = round(m.get("win_pct_before", 0) - m.get("win_pct_after", 0), 1)
     sev = (m.get("severity") or "mistake").capitalize()
     anchor = (
-        f"[ANCHOR — copy this line exactly]\n"
         f"**Move {m['move_number']} ({m['phase']}) — {sev}** "
         f"([open game]({m['url']})): "
         f"played `{m['played']}`, Stockfish preferred `{m['best_move']}`. "
@@ -264,8 +263,8 @@ def _format_example_anchor(m: dict, e: dict) -> str:
 def compact_for_llm(facts: dict) -> dict:
     """Build the fact sheet sent to the LLM.
 
-    Each mistake example includes a pre-rendered ANCHOR line built from verified
-    Stockfish data. The LLM must copy that anchor verbatim and only add a coaching
+    Each mistake example includes a pre-rendered fact_line built from verified
+    Stockfish data. The LLM copies that line verbatim and only adds a coaching
     explanation after it — it must not restate the move names or numbers itself.
     """
     s = facts["scan"]
@@ -278,7 +277,7 @@ def compact_for_llm(facts: dict) -> dict:
         if "error" in e:
             continue
         item = {
-            "anchor":        _format_example_anchor(m, e),
+            "fact_line":     _format_example_anchor(m, e),
             "url":           m.get("url"),
             "move_number":   m.get("move_number"),
             "phase":         m.get("phase"),

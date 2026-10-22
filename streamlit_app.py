@@ -133,7 +133,8 @@ def render_results(facts: dict, report_text: str, verified: bool, unverified_lis
                     )
 
 
-def run_ollama_streaming(facts: dict, model_name: str, url: str) -> tuple[str, bool, list]:
+def run_ollama_streaming(facts: dict, model_name: str, url: str,
+                         prompt: str = REPORT_PROMPT) -> tuple[str, bool, list]:
     """Stream an Ollama report directly into the Streamlit page.
 
     Returns (full_text, verified, unverified_moves).
@@ -146,12 +147,11 @@ def run_ollama_streaming(facts: dict, model_name: str, url: str) -> tuple[str, b
     full_text = ""
 
     try:
-        for token in stream_ollama(REPORT_PROMPT, user_prompt, model_name, url):
+        for token in stream_ollama(prompt, user_prompt, model_name, url):
             full_text += token
-            placeholder.markdown(full_text + "▌")   # blinking cursor effect
-        placeholder.markdown(full_text)             # final render without cursor
+            placeholder.markdown(full_text + "▌")
+        placeholder.markdown(full_text)
     except BackendError as e:
-        # Fall back to template
         st.warning(f"{e} Showing the Stockfish-only report instead.")
         full_text = template_report(facts)
         placeholder.markdown(full_text)
@@ -160,9 +160,10 @@ def run_ollama_streaming(facts: dict, model_name: str, url: str) -> tuple[str, b
     return full_text, not bad, bad
 
 
-def run_report(facts: dict) -> tuple[str, bool, list]:
+def run_report(facts: dict, prompt: str = REPORT_PROMPT) -> tuple[str, bool, list]:
     """Generate the report for non-streaming backends (template / Gemini)."""
-    res = write_report(facts, backend, api_key=api_key, model=model, ollama_url=ollama_url)
+    res = write_report(facts, backend, api_key=api_key, model=model,
+                       ollama_url=ollama_url, system_prompt=prompt)
     if res.note:
         st.warning(res.note)
     return res.text, res.verified, res.unverified
@@ -194,7 +195,7 @@ with tab_lichess:
             cfg = make_cfg()
             tools = CoachTools(cfg, username=username.strip())
             try:
-                # ── gather facts ──────────────────────────────────────────
+                # ── gather facts (Stockfish, no LLM) ─────────────────────
                 with st.status("Working…", expanded=True) as status:
                     tools.progress = lambda k, i, n: status.update(
                         label=f"Analysing game {i}/{n}…"
@@ -207,25 +208,17 @@ with tab_lichess:
                         status.update(label="Error", state="error")
                         st.error(facts["error"])
                         st.stop()
+                    status.update(label="Stockfish done ✓", state="complete")
 
-                    if backend == "ollama":
-                        status.update(label="Stockfish done — streaming AI report…", state="complete")
-                    elif backend != "template":
-                        status.update(label="Writing the report…")
-                        # non-streaming report happens inside status block
-                        report_text, verified, bad = run_report(facts)
-                        status.update(label="Done ✓", state="complete")
-                    else:
-                        status.update(label="Done ✓", state="complete")
-
-                # ── render ────────────────────────────────────────────────
+                # ── write report (LLM or template) ────────────────────────
                 if backend == "ollama":
                     report_text, verified, bad = run_ollama_streaming(
                         facts, model or "llama3.2:3b",
                         ollama_url or "http://localhost:11434",
                     )
-                elif backend == "template":
-                    report_text, verified, bad = run_report(facts)
+                else:
+                    with st.spinner("Writing the report…" if backend != "template" else ""):
+                        report_text, verified, bad = run_report(facts)
 
                 render_results(facts, report_text, verified, bad)
 
@@ -278,10 +271,9 @@ with tab_pgn:
             st.error("Enter a Gemini API key, or choose the Stockfish-only writer.")
         else:
             cfg = make_cfg()
-            # For PGN mode we don't need a Lichess username in CoachTools
             tools = CoachTools(cfg, username=pgn_user.strip() or "Player")
             try:
-                # ── gather facts ──────────────────────────────────────────
+                # ── gather facts (Stockfish, no LLM) ─────────────────────
                 with st.status("Working…", expanded=True) as status:
                     facts = gather_facts_from_pgn(
                         pgn_str,
@@ -294,24 +286,18 @@ with tab_pgn:
                         status.update(label="Error", state="error")
                         st.error(facts["error"])
                         st.stop()
+                    status.update(label="Stockfish done ✓", state="complete")
 
-                    if backend == "ollama":
-                        status.update(label="Stockfish done — streaming AI report…", state="complete")
-                    elif backend != "template":
-                        status.update(label="Writing the report…")
-                        report_text, verified, bad = run_report(facts)
-                        status.update(label="Done ✓", state="complete")
-                    else:
-                        status.update(label="Done ✓", state="complete")
-
-                # ── render ────────────────────────────────────────────────
+                # ── write report (LLM or template) ────────────────────────
                 if backend == "ollama":
                     report_text, verified, bad = run_ollama_streaming(
                         facts, model or "llama3.2:3b",
                         ollama_url or "http://localhost:11434",
+                        prompt=SINGLE_GAME_PROMPT,
                     )
-                elif backend == "template":
-                    report_text, verified, bad = run_report(facts)
+                else:
+                    with st.spinner("Writing the report…" if backend != "template" else ""):
+                        report_text, verified, bad = run_report(facts, SINGLE_GAME_PROMPT)
 
                 render_results(facts, report_text, verified, bad)
 

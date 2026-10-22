@@ -61,6 +61,6 @@ class Config:
     puzzle_rows: int = field(default_factory=lambda: int(_env("PUZZLE_ROWS", "400000")))
 
     # Agent
-    model: str = field(default_factory=lambda: _env("COACH_MODEL", "gemini-2.5-flash"))
+    model: str = field(default_factory=lambda: _env("COACH_MODEL", "gemini-3.8-flash"))
     max_tool_calls: int = 8
     low_clock_seconds: int = 30
